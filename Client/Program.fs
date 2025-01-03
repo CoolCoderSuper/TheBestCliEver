@@ -18,7 +18,7 @@ let drawUI (messages: string list) =
     printf "Enter Message: "
     rendering <- false
 
-let receiveMessages (client: TcpClient) (messages: string list ref) =
+let receiveMessages (client: TcpClient) (messages: string list ref) (username: string option) =
     let stream = client.GetStream()
     let buffer = Array.zeroCreate 1024
     let rec loop () =
@@ -26,8 +26,11 @@ let receiveMessages (client: TcpClient) (messages: string list ref) =
             let bytesRead = stream.Read(buffer, 0, buffer.Length)
             if bytesRead > 0 then
                 let data = Encoding.ASCII.GetString(buffer, 0, bytesRead)
-                messages := data :: !messages
-                drawUI !messages
+                match username with
+                | Some _ ->
+                    messages := data :: !messages
+                    drawUI !messages
+                | None -> ()
                 loop()
         with
         | :? System.IO.IOException -> ()
@@ -43,12 +46,18 @@ let promptUsername () =
     printf "Enter your username: "
     Console.ReadLine()
 
+let sendUsername (client: TcpClient) (username: string) =
+    let stream = client.GetStream()
+    let buffer = Encoding.ASCII.GetBytes(username)
+    stream.Write(buffer, 0, buffer.Length)
+
 let startClient (hostname: string) (port: int) =
     let client = new TcpClient(hostname, port)
     let messages = ref []
-    let receiveThread = new Thread(ThreadStart(fun () -> receiveMessages client messages))
-    receiveThread.Start()
     let username = promptUsername()
+    let receiveThread = new Thread(ThreadStart(fun () -> receiveMessages client messages (Some username)))
+    receiveThread.Start()
+    sendUsername client username
     let rec loop () =
         drawUI !messages
         let message = Console.ReadLine()
