@@ -5,7 +5,20 @@ open System.Net.Sockets
 open System.Text
 open System.Threading
 
-let receiveMessages (client: TcpClient) =
+let mutable rendering = false
+
+let drawUI (messages: string list) =
+    while rendering do
+        Thread.Sleep(10)
+    rendering <- true
+    Console.Clear()
+    for message in messages do
+        printfn "%s" message
+    Console.SetCursorPosition(0, Console.WindowHeight - 1)
+    printf "Enter Message: "
+    rendering <- false
+
+let receiveMessages (client: TcpClient) (messages: string list ref) =
     let stream = client.GetStream()
     let buffer = Array.zeroCreate 1024
     let rec loop () =
@@ -13,28 +26,34 @@ let receiveMessages (client: TcpClient) =
             let bytesRead = stream.Read(buffer, 0, buffer.Length)
             if bytesRead > 0 then
                 let data = Encoding.ASCII.GetString(buffer, 0, bytesRead)
-                Console.SetCursorPosition(0, Console.CursorTop)
-                printfn "\n%s" data
-                printfn "Enter Message: "
+                messages := data :: !messages
+                drawUI !messages
                 loop()
         with
         | :? System.IO.IOException -> ()
     loop()
 
-let sendMessage (client: TcpClient) (message: string) =
+let sendMessage (client: TcpClient) (username: string) (message: string) =
     let stream = client.GetStream()
-    let buffer = Encoding.ASCII.GetBytes(message)
+    let fullMessage = sprintf "%s: %s" username message
+    let buffer = Encoding.ASCII.GetBytes(fullMessage)
     stream.Write(buffer, 0, buffer.Length)
+
+let promptUsername () =
+    printf "Enter your username: "
+    Console.ReadLine()
 
 let startClient (hostname: string) (port: int) =
     let client = new TcpClient(hostname, port)
-    let receiveThread = new Thread(ThreadStart(fun () -> receiveMessages(client)))
+    let messages = ref []
+    let receiveThread = new Thread(ThreadStart(fun () -> receiveMessages client messages))
     receiveThread.Start()
+    let username = promptUsername()
     let rec loop () =
-        printf "Enter Message: "
+        drawUI !messages
         let message = Console.ReadLine()
         if not (String.IsNullOrEmpty(message)) then
-            sendMessage client message
+            sendMessage client username message
             loop()
     loop()
 
