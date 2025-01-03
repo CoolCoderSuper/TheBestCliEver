@@ -26,14 +26,27 @@ By default, the server will start on port 8080. You can specify a different port
 dotnet run --project Server -- 1234
 ```
 
-## Connecting to the Server
 
-You can connect to the server using `telnet`. Open a terminal and run the following command:
+## Building the Client
+
+To build the client, you need to have the .NET SDK installed. You can download it from [here](https://dotnet.microsoft.com/download).
+
+Once you have the .NET SDK installed, navigate to the `Client` directory and run the following command:
 
 ```sh
-telnet localhost 8963
+dotnet build
 ```
 
-Replace `8963` with the port number you specified when starting the server.
+## Running the Client
 
-Once connected, you can type messages, and the server will echo them back to you.
+To run the client, use the following command:
+
+```sh
+dotnet run --project Client
+```
+
+By default, the client will connect to `localhost` on port `8963`. You can specify a different hostname and port by providing them as arguments:
+
+```sh
+dotnet run --project Client -- <hostname> <port>
+```
