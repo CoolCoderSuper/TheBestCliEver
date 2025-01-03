@@ -7,6 +7,7 @@ open System.Text
 open System.Threading
 
 let clients = System.Collections.Concurrent.ConcurrentDictionary<Guid, TcpClient>()
+let mutable usernames = Set.empty<string>
 
 let broadcastMessage (message: string) =
     for client in clients.Values do
@@ -16,6 +17,10 @@ let broadcastMessage (message: string) =
 
 let sendPresenceMessage (username: string) =
     let message = sprintf "%s has joined the chat" username
+    broadcastMessage message
+
+let sendDisconnectionMessage (username: string) =
+    let message = sprintf "%s has left the chat" username
     broadcastMessage message
 
 let handleClient (client: TcpClient) =
@@ -32,19 +37,36 @@ let handleClient (client: TcpClient) =
                 match username with
                 | None ->
                     let newUsername = data.Trim()
-                    sendPresenceMessage newUsername
-                    loop (Some newUsername)
+                    if Set.contains newUsername usernames then
+                        let errorMessage = "Username already taken. Please choose a different username."
+                        let errorBuffer = Encoding.ASCII.GetBytes(errorMessage)
+                        stream.Write(errorBuffer, 0, errorBuffer.Length)
+                        loop None
+                    else
+                        usernames <- Set.add newUsername usernames
+                        sendPresenceMessage newUsername
+                        loop (Some newUsername)
                 | Some _ ->
                     broadcastMessage data
                     loop username
             else
                 let mutable removedClient = Unchecked.defaultof<TcpClient>
                 clients.TryRemove(clientId, &removedClient) |> ignore
+                match username with
+                | Some u -> 
+                    usernames <- Set.remove u usernames
+                    sendDisconnectionMessage u
+                | None -> ()
                 printfn "Client disconnected"
         with
         | :? System.IO.IOException ->
             let mutable removedClient = Unchecked.defaultof<TcpClient>
             clients.TryRemove(clientId, &removedClient) |> ignore
+            match username with
+            | Some u -> 
+                usernames <- Set.remove u usernames
+                sendDisconnectionMessage u
+            | None -> ()
             printfn "Client disconnected"
     loop None
 
