@@ -1,4 +1,4 @@
-module EchoClient
+module ChatClient
 
 open System
 open System.Net.Sockets
@@ -46,14 +46,19 @@ let promptUsername () =
     printf "Enter your username: "
     Console.ReadLine()
 
-let sendUsername (client: TcpClient) (username: string) =
+let promptPassword () =
+    printf "Enter your password: "
+    Console.ReadLine()
+
+let sendUsername (client: TcpClient) (username: string) (password: string) =
     let stream = client.GetStream()
-    let buffer = Encoding.ASCII.GetBytes(username)
+    let userInfo = sprintf "%s:%s" username password
+    let buffer = Encoding.ASCII.GetBytes(userInfo)
     stream.Write(buffer, 0, buffer.Length)
     let responseBuffer = Array.zeroCreate 1024
     let bytesRead = stream.Read(responseBuffer, 0, responseBuffer.Length)
     let response = Encoding.ASCII.GetString(responseBuffer, 0, bytesRead)
-    if response = "Username already taken. Please choose a different username." then
+    if response = "Invalid username or password." then
         printfn "%s" response
         None
     else
@@ -75,7 +80,8 @@ let startClient (hostname: string) (port: int) =
     sendChannel client channel
     let rec getUsername () =
         let username = promptUsername()
-        match sendUsername client username with
+        let password = promptPassword()
+        match sendUsername client username password with
         | Some validUsername -> validUsername
         | None -> getUsername()
     let username = getUsername()
