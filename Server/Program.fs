@@ -1,10 +1,11 @@
-module EchoServer
+module ChatServer
 
 open System
 open System.Net
 open System.Net.Sockets
 open System.Text
 open System.Threading
+open Server
 
 let clients = System.Collections.Concurrent.ConcurrentDictionary<Guid, TcpClient>()
 let mutable usernames = Set.empty<string>
@@ -26,6 +27,12 @@ let sendDisconnectionMessage (channel: string) (username: string) =
     let message = sprintf "%s has left the chat" username
     broadcastMessage channel message
 
+let saveUserInfo (userRepository: IUserRepository) (user: User) =
+    userRepository.SaveUser(user)
+
+let loadUserInfo (userRepository: IUserRepository) (username: string) =
+    userRepository.LoadUser(username)
+
 let handleClient (client: TcpClient) =
     let clientId = Guid.NewGuid()
     clients.TryAdd(clientId, client) |> ignore
@@ -45,16 +52,26 @@ let handleClient (client: TcpClient) =
                     channels.[newChannel].Add(clientId) |> ignore
                     loop (Some newChannel) username
                 | Some _, None ->
-                    let newUsername = data.Trim()
-                    if Set.contains newUsername usernames then
-                        let errorMessage = "Username already taken. Please choose a different username."
-                        let errorBuffer = Encoding.ASCII.GetBytes(errorMessage)
-                        stream.Write(errorBuffer, 0, errorBuffer.Length)
-                        loop channel None
-                    else
+                    let userInfo = data.Split(':')
+                    let newUsername = userInfo.[0].Trim()
+                    let password = userInfo.[1].Trim()
+                    let userRepository = JsonUserRepository("users.json") :> IUserRepository
+                    match loadUserInfo userRepository newUsername with
+                    | Some user when user.Password = password ->
                         usernames <- Set.add newUsername usernames
                         sendPresenceMessage (channel.Value) newUsername
                         loop channel (Some newUsername)
+                    | None ->
+                        let newUser = { Username = newUsername; Password = password }
+                        saveUserInfo userRepository newUser
+                        usernames <- Set.add newUsername usernames
+                        sendPresenceMessage (channel.Value) newUsername
+                        loop channel (Some newUsername)
+                    | _ ->
+                        let errorMessage = "Invalid username or password."
+                        let errorBuffer = Encoding.ASCII.GetBytes(errorMessage)
+                        stream.Write(errorBuffer, 0, errorBuffer.Length)
+                        loop channel None
                 | Some ch, Some _ ->
                     broadcastMessage ch data
                     loop channel username

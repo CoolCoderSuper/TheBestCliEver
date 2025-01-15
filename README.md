@@ -53,3 +53,9 @@ dotnet run --project Client -- <hostname> <port>
 ```
 
 When the client connects, they will be prompted to enter a channel name. Messages will be sent only to clients in the same channel.
+
+## User Authentication
+
+The server now supports user authentication. When a client connects, they will be prompted to enter a username and password. The server will authenticate the user using the saved user information. If the username and password are valid, the user will be allowed to join the chat. If the username and password are invalid, the user will be prompted to enter the username and password again.
+
+The user information is saved to a JSON file. This makes it easy to swap out the JSON file for a real database in the future.
