@@ -1,6 +1,6 @@
-# Echo TCP Server
+# TCP Chat
 
-This is a simple echo TCP server implemented in F#.
+This is simple TCP chat implemented in F#.
 
 ## Building the Server
 
