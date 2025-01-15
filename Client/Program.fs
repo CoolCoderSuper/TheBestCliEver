@@ -59,9 +59,20 @@ let sendUsername (client: TcpClient) (username: string) =
     else
         Some username
 
+let promptChannel () =
+    printf "Enter the channel name: "
+    Console.ReadLine()
+
+let sendChannel (client: TcpClient) (channel: string) =
+    let stream = client.GetStream()
+    let buffer = Encoding.ASCII.GetBytes(channel)
+    stream.Write(buffer, 0, buffer.Length)
+
 let startClient (hostname: string) (port: int) =
     let client = new TcpClient(hostname, port)
     let messages = ref []
+    let channel = promptChannel()
+    sendChannel client channel
     let rec getUsername () =
         let username = promptUsername()
         match sendUsername client username with
