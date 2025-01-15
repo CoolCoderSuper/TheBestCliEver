@@ -1,5 +1,5 @@
 module ChatServer
-
+//TODO: Channel management
 open System
 open System.Net
 open System.Net.Sockets
