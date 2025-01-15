@@ -26,6 +26,7 @@ By default, the server will start on port 8080. You can specify a different port
 dotnet run --project Server -- 1234
 ```
 
+The server now supports multiple channels. When a client connects, they will be prompted to enter a channel name. Messages will be broadcasted only to clients in the same channel.
 
 ## Building the Client
 
@@ -50,3 +51,5 @@ By default, the client will connect to `localhost` on port `8963`. You can speci
 ```sh
 dotnet run --project Client -- <hostname> <port>
 ```
+
+When the client connects, they will be prompted to enter a channel name. Messages will be sent only to clients in the same channel.

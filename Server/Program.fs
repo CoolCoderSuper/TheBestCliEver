@@ -8,67 +8,76 @@ open System.Threading
 
 let clients = System.Collections.Concurrent.ConcurrentDictionary<Guid, TcpClient>()
 let mutable usernames = Set.empty<string>
+let channels = System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentBag<Guid>>()
 
-let broadcastMessage (message: string) =
-    for client in clients.Values do
-        let stream = client.GetStream()
-        let buffer = Encoding.ASCII.GetBytes(message)
-        stream.Write(buffer, 0, buffer.Length)
+let broadcastMessage (channel: string) (message: string) =
+    if channels.ContainsKey(channel) then
+        let validClients = channels[channel]
+        for client in clients |> Seq.filter (fun kvp -> validClients |> Seq.contains kvp.Key) |> Seq.map _.Value do
+            let stream = client.GetStream()
+            let buffer = Encoding.ASCII.GetBytes(message)
+            stream.Write(buffer, 0, buffer.Length)
 
-let sendPresenceMessage (username: string) =
+let sendPresenceMessage (channel: string) (username: string) =
     let message = sprintf "%s has joined the chat" username
-    broadcastMessage message
+    broadcastMessage channel message
 
-let sendDisconnectionMessage (username: string) =
+let sendDisconnectionMessage (channel: string) (username: string) =
     let message = sprintf "%s has left the chat" username
-    broadcastMessage message
+    broadcastMessage channel message
 
 let handleClient (client: TcpClient) =
     let clientId = Guid.NewGuid()
     clients.TryAdd(clientId, client) |> ignore
     use stream = client.GetStream()
     let buffer = Array.zeroCreate 1024
-    let rec loop (username: string option) =
+    let rec loop (channel: string option) (username: string option) =
         try
             let bytesRead = stream.Read(buffer, 0, buffer.Length)
             if bytesRead > 0 then
                 let data = Encoding.ASCII.GetString(buffer, 0, bytesRead)
                 printfn "Received: %s" data
-                match username with
-                | None ->
+                match channel, username with
+                | None, _ ->
+                    let newChannel = data.Trim()
+                    if not (channels.ContainsKey(newChannel)) then
+                        channels.TryAdd(newChannel, System.Collections.Concurrent.ConcurrentBag<Guid>()) |> ignore
+                    channels.[newChannel].Add(clientId) |> ignore
+                    loop (Some newChannel) username
+                | Some _, None ->
                     let newUsername = data.Trim()
                     if Set.contains newUsername usernames then
                         let errorMessage = "Username already taken. Please choose a different username."
                         let errorBuffer = Encoding.ASCII.GetBytes(errorMessage)
                         stream.Write(errorBuffer, 0, errorBuffer.Length)
-                        loop None
+                        loop channel None
                     else
                         usernames <- Set.add newUsername usernames
-                        sendPresenceMessage newUsername
-                        loop (Some newUsername)
-                | Some _ ->
-                    broadcastMessage data
-                    loop username
+                        sendPresenceMessage (channel.Value) newUsername
+                        loop channel (Some newUsername)
+                | Some ch, Some _ ->
+                    broadcastMessage ch data
+                    loop channel username
             else
                 let mutable removedClient = Unchecked.defaultof<TcpClient>
                 clients.TryRemove(clientId, &removedClient) |> ignore
-                match username with
-                | Some u -> 
+                match channel, username with
+                | Some ch, Some u -> 
                     usernames <- Set.remove u usernames
-                    sendDisconnectionMessage u
-                | None -> ()
+                    sendDisconnectionMessage ch u
+                | _ -> ()
                 printfn "Client disconnected"
         with
         | :? System.IO.IOException ->
             let mutable removedClient = Unchecked.defaultof<TcpClient>
             clients.TryRemove(clientId, &removedClient) |> ignore
-            match username with
-            | Some u -> 
+            match channel, username with
+            | Some ch, Some u -> 
                 usernames <- Set.remove u usernames
-                sendDisconnectionMessage u
-            | None -> ()
+                sendDisconnectionMessage ch u
+            | _ -> ()
             printfn "Client disconnected"
-    loop None
+    loop None None
 
 let startServer (port: int) =
     let listener = new TcpListener(IPAddress.Any, port)
