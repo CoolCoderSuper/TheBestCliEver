@@ -1,61 +1,92 @@
 # TCP Chat
 
-This is simple TCP chat implemented in F#.
+A simple multi-channel TCP chat application written in F#.
 
-## Building the Server
+The solution contains:
 
-To build the server, you need to have the .NET SDK installed. You can download it from [here](https://dotnet.microsoft.com/download).
+- `Server`: accepts client connections, authenticates users, and broadcasts messages.
+- `Client`: console app for joining a channel and sending/receiving messages.
 
-Once you have the .NET SDK installed, navigate to the `Server` directory and run the following command:
+## Prerequisites
+
+- [.NET 8 SDK](https://dotnet.microsoft.com/download)
+- A terminal (use multiple terminal windows to run server + clients)
+
+## Project Structure
+
+- `Server/Program.fs`: chat server and connection/session flow
+- `Server/JsonUserRepository.fs`: JSON-backed user storage
+- `Client/Program.fs`: chat client console loop
+
+## Build
+
+From the repository root:
 
 ```sh
 dotnet build
 ```
 
-## Running the Server
+Or build projects individually:
 
-To run the server, use the following command:
+```sh
+dotnet build Server/Server.fsproj
+dotnet build Client/Client.fsproj
+```
+
+## Run
+
+### 1) Start the server
+
+Default port is `8963`:
 
 ```sh
 dotnet run --project Server
 ```
 
-By default, the server will start on port 8080. You can specify a different port by providing it as an argument:
+Specify a custom port:
 
 ```sh
 dotnet run --project Server -- 1234
 ```
 
-The server now supports multiple channels. When a client connects, they will be prompted to enter a channel name. Messages will be broadcasted only to clients in the same channel.
+### 2) Start one or more clients
 
-## Building the Client
-
-To build the client, you need to have the .NET SDK installed. You can download it from [here](https://dotnet.microsoft.com/download).
-
-Once you have the .NET SDK installed, navigate to the `Client` directory and run the following command:
-
-```sh
-dotnet build
-```
-
-## Running the Client
-
-To run the client, use the following command:
+Default target is `localhost:8963`:
 
 ```sh
 dotnet run --project Client
 ```
 
-By default, the client will connect to `localhost` on port `8963`. You can specify a different hostname and port by providing them as arguments:
+Connect to a custom host/port:
 
 ```sh
 dotnet run --project Client -- <hostname> <port>
 ```
 
-When the client connects, they will be prompted to enter a channel name. Messages will be sent only to clients in the same channel.
+## How Operation Works
 
-## User Authentication
+When a client starts:
 
-The server now supports user authentication. When a client connects, they will be prompted to enter a username and password. The server will authenticate the user using the saved user information. If the username and password are valid, the user will be allowed to join the chat. If the username and password are invalid, the user will be prompted to enter the username and password again.
+1. Enter a **channel name**.
+2. Enter **username** and **password**.
+3. If the username is new, it is created automatically.
+4. If the username exists, the password must match.
+5. After successful authentication, the client joins the channel and can chat.
 
-The user information is saved to a JSON file. This makes it easy to swap out the JSON file for a real database in the future.
+Behavior details:
+
+- Messages are broadcast only to users in the same channel.
+- Join/leave presence messages are sent to channel members.
+- Type `/quit` in the client to disconnect.
+
+## Authentication and Storage
+
+- User credentials are stored in `users.json` (created automatically on first registration).
+- `users.json` is local file storage intended for development/demo usage.
+- The repository abstraction (`IUserRepository`) allows replacing JSON with a database later.
+
+## Troubleshooting
+
+- **Connection error**: verify server is running and host/port are correct.
+- **Auth keeps failing**: ensure username/password are entered correctly at prompts (values cannot be blank).
+- **Port parse error**: pass a port in range `1-65535`.

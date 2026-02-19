@@ -1,115 +1,198 @@
 module ChatServer
-//TODO: Channel management
+
 open System
+open System.Collections.Concurrent
+open System.IO
 open System.Net
 open System.Net.Sockets
 open System.Text
 open System.Threading
 open Server
 
-let clients = System.Collections.Concurrent.ConcurrentDictionary<Guid, TcpClient>()
-let mutable usernames = Set.empty<string>
-let channels = System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentBag<Guid>>()
+[<Literal>]
+let AuthOk = "AUTH_OK"
 
-let broadcastMessage (channel: string) (message: string) =
-    if channels.ContainsKey(channel) then
-        let validClients = channels[channel]
-        for client in clients |> Seq.filter (fun kvp -> validClients |> Seq.contains kvp.Key) |> Seq.map _.Value do
-            let stream = client.GetStream()
-            let buffer = Encoding.ASCII.GetBytes(message)
-            stream.Write(buffer, 0, buffer.Length)
+[<Literal>]
+let AuthFail = "AUTH_FAIL"
 
-let sendPresenceMessage (channel: string) (username: string) =
-    let message = sprintf "%s has joined the chat" username
-    broadcastMessage channel message
+let clients = ConcurrentDictionary<Guid, TcpClient>()
+let channels = ConcurrentDictionary<string, ConcurrentDictionary<Guid, byte>>()
+let clientChannels = ConcurrentDictionary<Guid, string>()
+let userRepository = JsonUserRepository("users.json") :> IUserRepository
 
-let sendDisconnectionMessage (channel: string) (username: string) =
-    let message = sprintf "%s has left the chat" username
-    broadcastMessage channel message
+let utf8NoBom = UTF8Encoding(false)
 
-let saveUserInfo (userRepository: IUserRepository) (user: User) =
-    userRepository.SaveUser(user)
+let tryReadLine (reader: StreamReader) =
+    try
+        let line = reader.ReadLine()
+        if isNull line then None else Some line
+    with
+    | :? IOException
+    | :? ObjectDisposedException ->
+        None
 
-let loadUserInfo (userRepository: IUserRepository) (username: string) =
-    userRepository.LoadUser(username)
+let sendLine (writer: StreamWriter) (message: string) =
+    writer.WriteLine(message)
+
+let trySendToClient (client: TcpClient) (message: string) =
+    try
+        let stream = client.GetStream()
+        use writer = new StreamWriter(stream, utf8NoBom, 1024, true)
+        writer.AutoFlush <- true
+        writer.WriteLine(message)
+        true
+    with
+    | :? IOException
+    | :? SocketException
+    | :? ObjectDisposedException ->
+        false
+
+let broadcastToChannel (channel: string) (message: string) =
+    match channels.TryGetValue(channel) with
+    | true, members ->
+        for clientId in members.Keys do
+            match clients.TryGetValue(clientId) with
+            | true, client ->
+                trySendToClient client message |> ignore
+            | false, _ -> ()
+    | false, _ -> ()
+
+let addClientToChannel (clientId: Guid) (channel: string) =
+    let members = channels.GetOrAdd(channel, fun _ -> ConcurrentDictionary<Guid, byte>())
+    members.[clientId] <- 0uy
+    clientChannels.[clientId] <- channel
+
+let removeClientFromChannel (clientId: Guid) =
+    let mutable removedChannel = Unchecked.defaultof<string>
+    if clientChannels.TryRemove(clientId, &removedChannel) then
+        match channels.TryGetValue(removedChannel) with
+        | true, members ->
+            let mutable removedMember = 0uy
+            members.TryRemove(clientId, &removedMember) |> ignore
+
+            if members.IsEmpty then
+                let mutable removedMembers = Unchecked.defaultof<ConcurrentDictionary<Guid, byte>>
+                channels.TryRemove(removedChannel, &removedMembers) |> ignore
+        | false, _ -> ()
+        Some removedChannel
+    else
+        None
+
+let tryParseCredentials (credentials: string) =
+    let separatorIndex = credentials.IndexOf(':')
+    if separatorIndex <= 0 || separatorIndex = credentials.Length - 1 then
+        None
+    else
+        let username = credentials.Substring(0, separatorIndex).Trim()
+        let password = credentials.Substring(separatorIndex + 1).Trim()
+        if String.IsNullOrWhiteSpace(username) || String.IsNullOrWhiteSpace(password) then
+            None
+        else
+            Some(username, password)
+
+let authenticateUser (username: string) (password: string) =
+    match userRepository.LoadUser(username) with
+    | Some user ->
+        user.Password = password
+    | None ->
+        userRepository.SaveUser({ Username = username; Password = password })
+        true
+
+let rec authenticateClient (reader: StreamReader) (writer: StreamWriter) =
+    match tryReadLine reader with
+    | Some credentialsLine ->
+        match tryParseCredentials credentialsLine with
+        | Some(username, password) when authenticateUser username password ->
+            sendLine writer AuthOk
+            Some username
+        | _ ->
+            sendLine writer AuthFail
+            authenticateClient reader writer
+    | None ->
+        None
+
+let disconnectClient (clientId: Guid) (username: string option) =
+    let channel = removeClientFromChannel clientId
+
+    let mutable removedClient = Unchecked.defaultof<TcpClient>
+    if clients.TryRemove(clientId, &removedClient) then
+        try
+            removedClient.Close()
+        with
+        | :? SocketException -> ()
+        | :? ObjectDisposedException -> ()
+
+    match channel, username with
+    | Some channelName, Some user ->
+        broadcastToChannel channelName (sprintf "%s has left the chat" user)
+    | _ -> ()
 
 let handleClient (client: TcpClient) =
     let clientId = Guid.NewGuid()
     clients.TryAdd(clientId, client) |> ignore
-    use stream = client.GetStream()
-    let buffer = Array.zeroCreate 1024
-    let rec loop (channel: string option) (username: string option) =
-        try
-            let bytesRead = stream.Read(buffer, 0, buffer.Length)
-            if bytesRead > 0 then
-                let data = Encoding.ASCII.GetString(buffer, 0, bytesRead)
-                printfn "Received: %s" data
-                match channel, username with
-                | None, _ ->
-                    let newChannel = data.Trim()
-                    if not (channels.ContainsKey(newChannel)) then
-                        channels.TryAdd(newChannel, System.Collections.Concurrent.ConcurrentBag<Guid>()) |> ignore
-                    channels.[newChannel].Add(clientId) |> ignore
-                    loop (Some newChannel) username
-                | Some _, None ->
-                    let userInfo = data.Split(':')
-                    let newUsername = userInfo.[0].Trim()
-                    let password = userInfo.[1].Trim()
-                    let userRepository = JsonUserRepository("users.json") :> IUserRepository
-                    match loadUserInfo userRepository newUsername with
-                    | Some user when user.Password = password ->
-                        usernames <- Set.add newUsername usernames
-                        sendPresenceMessage (channel.Value) newUsername
-                        loop channel (Some newUsername)
-                    | None ->
-                        let newUser = { Username = newUsername; Password = password }
-                        saveUserInfo userRepository newUser
-                        usernames <- Set.add newUsername usernames
-                        sendPresenceMessage (channel.Value) newUsername
-                        loop channel (Some newUsername)
-                    | _ ->
-                        let errorMessage = "Invalid username or password."
-                        let errorBuffer = Encoding.ASCII.GetBytes(errorMessage)
-                        stream.Write(errorBuffer, 0, errorBuffer.Length)
-                        loop channel None
-                | Some ch, Some _ ->
-                    broadcastMessage ch data
-                    loop channel username
-            else
-                let mutable removedClient = Unchecked.defaultof<TcpClient>
-                clients.TryRemove(clientId, &removedClient) |> ignore
-                match channel, username with
-                | Some ch, Some u -> 
-                    usernames <- Set.remove u usernames
-                    sendDisconnectionMessage ch u
-                | _ -> ()
-                printfn "Client disconnected"
-        with
-        | :? System.IO.IOException ->
-            let mutable removedClient = Unchecked.defaultof<TcpClient>
-            clients.TryRemove(clientId, &removedClient) |> ignore
-            match channel, username with
-            | Some ch, Some u -> 
-                usernames <- Set.remove u usernames
-                sendDisconnectionMessage ch u
-            | _ -> ()
-            printfn "Client disconnected"
-    loop None None
+    printfn "Client connected: %A" clientId
+
+    let mutable username: string option = None
+
+    try
+        use stream = client.GetStream()
+        use reader = new StreamReader(stream, utf8NoBom, false, 1024, true)
+        use writer = new StreamWriter(stream, utf8NoBom, 1024, true)
+        writer.AutoFlush <- true
+
+        match tryReadLine reader with
+        | Some rawChannel ->
+            let channel = rawChannel.Trim()
+            if not (String.IsNullOrWhiteSpace(channel)) then
+                match authenticateClient reader writer with
+                | Some authenticatedUser ->
+                    username <- Some authenticatedUser
+                    addClientToChannel clientId channel
+                    broadcastToChannel channel (sprintf "%s has joined the chat" authenticatedUser)
+
+                    let mutable receiving = true
+                    while receiving do
+                        match tryReadLine reader with
+                        | Some message when not (String.IsNullOrWhiteSpace(message)) ->
+                            broadcastToChannel channel (sprintf "%s: %s" authenticatedUser message)
+                        | Some _ -> ()
+                        | None -> receiving <- false
+                | None -> ()
+        | None -> ()
+    with
+    | :? IOException -> ()
+    | :? SocketException -> ()
+    | :? ObjectDisposedException -> ()
+    finally
+        disconnectClient clientId username
+        printfn "Client disconnected: %A" clientId
 
 let startServer (port: int) =
-    let listener = new TcpListener(IPAddress.Any, port)
+    let listener = TcpListener(IPAddress.Any, port)
     listener.Start()
     printfn "Server started on port %d" port
-    let rec acceptLoop () =
+
+    while true do
         let client = listener.AcceptTcpClient()
-        printfn "Client connected"
-        let clientThread = new Thread(ThreadStart(fun () -> handleClient(client)))
+        let clientThread = Thread(ThreadStart(fun () -> handleClient client))
+        clientThread.IsBackground <- true
         clientThread.Start()
-        acceptLoop()
-    acceptLoop()
+
+let parsePort (argv: string array) =
+    if argv.Length = 0 then
+        8963
+    else
+        match Int32.TryParse(argv.[0]) with
+        | true, port when port > 0 && port <= 65535 -> port
+        | _ -> failwith "Port must be an integer between 1 and 65535."
 
 [<EntryPoint>]
 let main argv =
-    let port = if argv.Length > 0 then Int32.Parse(argv.[0]) else 8963
-    startServer port
-    0
+    try
+        let port = parsePort argv
+        startServer port
+        0
+    with
+    | ex ->
+        eprintfn "%s" ex.Message
+        1
