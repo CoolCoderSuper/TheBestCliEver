@@ -135,34 +135,35 @@ let handleClient (client: TcpClient) =
     let mutable username: string option = None
 
     try
-        use stream = client.GetStream()
-        use reader = new StreamReader(stream, utf8NoBom, false, 1024, true)
-        use writer = new StreamWriter(stream, utf8NoBom, 1024, true)
-        writer.AutoFlush <- true
+        try
+            use stream = client.GetStream()
+            use reader = new StreamReader(stream, utf8NoBom, false, 1024, true)
+            use writer = new StreamWriter(stream, utf8NoBom, 1024, true)
+            writer.AutoFlush <- true
 
-        match tryReadLine reader with
-        | Some rawChannel ->
-            let channel = rawChannel.Trim()
-            if not (String.IsNullOrWhiteSpace(channel)) then
-                match authenticateClient reader writer with
-                | Some authenticatedUser ->
-                    username <- Some authenticatedUser
-                    addClientToChannel clientId channel
-                    broadcastToChannel channel (sprintf "%s has joined the chat" authenticatedUser)
+            match tryReadLine reader with
+            | Some rawChannel ->
+                let channel = rawChannel.Trim()
+                if not (String.IsNullOrWhiteSpace(channel)) then
+                    match authenticateClient reader writer with
+                    | Some authenticatedUser ->
+                        username <- Some authenticatedUser
+                        addClientToChannel clientId channel
+                        broadcastToChannel channel (sprintf "%s has joined the chat" authenticatedUser)
 
-                    let mutable receiving = true
-                    while receiving do
-                        match tryReadLine reader with
-                        | Some message when not (String.IsNullOrWhiteSpace(message)) ->
-                            broadcastToChannel channel (sprintf "%s: %s" authenticatedUser message)
-                        | Some _ -> ()
-                        | None -> receiving <- false
-                | None -> ()
-        | None -> ()
-    with
-    | :? IOException -> ()
-    | :? SocketException -> ()
-    | :? ObjectDisposedException -> ()
+                        let mutable receiving = true
+                        while receiving do
+                            match tryReadLine reader with
+                            | Some message when not (String.IsNullOrWhiteSpace(message)) ->
+                                broadcastToChannel channel (sprintf "%s: %s" authenticatedUser message)
+                            | Some _ -> ()
+                            | None -> receiving <- false
+                    | None -> ()
+            | None -> ()
+        with
+        | :? IOException -> ()
+        | :? SocketException -> ()
+        | :? ObjectDisposedException -> ()
     finally
         disconnectClient clientId username
         printfn "Client disconnected: %A" clientId

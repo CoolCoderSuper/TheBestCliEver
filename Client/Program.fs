@@ -92,7 +92,7 @@ let runInputLoop (writer: StreamWriter) =
                 sendLine writer trimmed
 
 let startClient (hostname: string) (port: int) =
-    use client = TcpClient()
+    use client = new TcpClient()
     client.Connect(hostname, port)
 
     use stream = client.GetStream()
