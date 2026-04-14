@@ -1,0 +1,4 @@
+{
+  "install": "./.cursor/scripts/install-deps.sh",
+  "start": "./.cursor/scripts/startup-checks.sh"
+}
