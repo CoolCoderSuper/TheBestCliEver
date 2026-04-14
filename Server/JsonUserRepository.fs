@@ -1,25 +1,52 @@
 namespace Server
 
+open System
 open System.IO
 open System.Text.Json
 
 type JsonUserRepository(filePath: string) =
-    interface IUserRepository with
-        member this.SaveUser(user: User) =
-            let users = 
-                if File.Exists(filePath) then
-                    let json = File.ReadAllText(filePath)
-                    JsonSerializer.Deserialize<User list>(json)
-                else
-                    []
-            let updatedUsers = user :: users
-            let json = JsonSerializer.Serialize(updatedUsers)
-            File.WriteAllText(filePath, json)
+    let fileLock = obj()
+    let serializerOptions = JsonSerializerOptions(WriteIndented = true)
 
-        member this.LoadUser(username: string) =
-            if File.Exists(filePath) then
-                let json = File.ReadAllText(filePath)
-                let users = JsonSerializer.Deserialize<User list>(json)
-                users |> List.tryFind (fun u -> u.Username = username)
+    let readUsersUnsafe () =
+        if not (File.Exists(filePath)) then
+            []
+        else
+            let json = File.ReadAllText(filePath)
+            if String.IsNullOrWhiteSpace(json) then
+                []
             else
-                None
+                try
+                    let users = JsonSerializer.Deserialize<User array>(json, serializerOptions)
+                    if isNull users then [] else users |> Array.toList
+                with
+                | :? JsonException ->
+                    []
+
+    let writeUsersUnsafe (users: User list) =
+        let fullPath = Path.GetFullPath(filePath)
+        let directory = Path.GetDirectoryName(fullPath)
+
+        if not (String.IsNullOrEmpty(directory)) then
+            Directory.CreateDirectory(directory) |> ignore
+
+        let json = JsonSerializer.Serialize(users, serializerOptions)
+        File.WriteAllText(filePath, json)
+
+    interface IUserRepository with
+        member _.SaveUser(user: User) =
+            lock fileLock (fun () ->
+                let users = readUsersUnsafe ()
+                let updatedUsers =
+                    users
+                    |> List.filter (fun existing -> existing.Username <> user.Username)
+                    |> fun remaining -> user :: remaining
+                    |> List.sortBy (fun u -> u.Username)
+
+                writeUsersUnsafe updatedUsers)
+
+        member _.LoadUser(username: string) =
+            lock fileLock (fun () ->
+                readUsersUnsafe ()
+                |> List.tryFind (fun user ->
+                    String.Equals(user.Username, username, StringComparison.Ordinal)))
