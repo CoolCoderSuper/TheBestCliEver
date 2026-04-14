@@ -169,7 +169,7 @@ let handleClient (client: TcpClient) =
         printfn "Client disconnected: %A" clientId
 
 let startServer (port: int) =
-    let listener = TcpListener(IPAddress.Any, port)
+    let listener = new TcpListener(IPAddress.Any, port)
     listener.Start()
     printfn "Server started on port %d" port
 

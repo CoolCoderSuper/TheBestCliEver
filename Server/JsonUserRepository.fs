@@ -17,9 +17,8 @@ type JsonUserRepository(filePath: string) =
                 []
             else
                 try
-                    JsonSerializer.Deserialize<User list>(json, serializerOptions)
-                    |> Option.ofObj
-                    |> Option.defaultValue []
+                    let users = JsonSerializer.Deserialize<User array>(json, serializerOptions)
+                    if isNull users then [] else users |> Array.toList
                 with
                 | :? JsonException ->
                     []
