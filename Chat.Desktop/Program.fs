@@ -8,6 +8,7 @@ open Avalonia.FuncUI
 open Avalonia.FuncUI.DSL
 open Avalonia.FuncUI.Hosts
 open Avalonia.Layout
+open Avalonia.Media
 open Avalonia.Styling
 open Avalonia.Themes.Fluent
 open Avalonia.Threading

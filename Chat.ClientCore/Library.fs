@@ -210,7 +210,7 @@ module ChatClient =
                             }
 
                         receiveLoop () |> Async.Start
-                        return Ok(ChatSession(validatedSettings.Username, sendMessage, disconnect))
+                        return Ok(new ChatSession(validatedSettings.Username, sendMessage, disconnect))
                     | Some AuthFail ->
                         disconnect ()
                         return Error ConnectError.InvalidCredentials

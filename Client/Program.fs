@@ -123,6 +123,7 @@ let main argv =
         let settings = parseArgs argv
         startClient settings
         0
+    with
     | ex ->
         eprintfn "%s" ex.Message
         1
