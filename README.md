@@ -6,6 +6,8 @@ The solution contains:
 
 - `Server`: accepts client connections, authenticates users, and broadcasts messages.
 - `Client`: console app for joining a channel and sending/receiving messages.
+- `Chat.ClientCore`: shared TCP chat protocol/client library used by both frontends.
+- `Chat.Desktop`: Avalonia.FuncUI desktop frontend for connecting and chatting visually.
 
 ## Prerequisites
 
@@ -14,10 +16,13 @@ The solution contains:
 
 ## Project Structure
 
+- `TcpChat.sln`: solution file including server, console client, shared client core, and desktop app
 - `Server/Program.fs`: chat server with functional state and async session flow
 - `Server/UserStore.fs`: shared domain types and functional storage dependency record
 - `Server/JsonUserStore.fs`: JSON-backed user storage implemented with pure transforms + IO boundary
-- `Client/Program.fs`: chat client using recursive/async console loops
+- `Chat.ClientCore/Library.fs`: reusable TCP client connection/auth/session logic
+- `Client/Program.fs`: console chat client now powered by the shared client core
+- `Chat.Desktop/Program.fs`: Avalonia.FuncUI desktop application
 
 ## Build
 
@@ -32,6 +37,7 @@ Or build projects individually:
 ```sh
 dotnet build Server/Server.fsproj
 dotnet build Client/Client.fsproj
+dotnet build Chat.Desktop/Chat.Desktop.fsproj
 ```
 
 ## Run
@@ -63,6 +69,21 @@ Connect to a custom host/port:
 ```sh
 dotnet run --project Client -- <hostname> <port>
 ```
+
+### 3) Start the Avalonia desktop client
+
+Default target is `localhost:8963` and the default channel is `general`:
+
+```sh
+dotnet run --project Chat.Desktop
+```
+
+From the desktop UI you can:
+
+1. Enter host, port, channel, username, and password.
+2. Connect using the same authentication flow as the console client.
+3. Read channel history in the chat window and send new messages from the input box.
+4. Disconnect without closing the application.
 
 ## How Operation Works
 

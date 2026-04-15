@@ -6,4 +6,7 @@
   <ItemGroup>
     <Compile Include="Program.fs" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Chat.ClientCore\Chat.ClientCore.fsproj" />
+  </ItemGroup>
 </Project>
