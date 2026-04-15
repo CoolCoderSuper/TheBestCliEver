@@ -14,9 +14,10 @@ The solution contains:
 
 ## Project Structure
 
-- `Server/Program.fs`: chat server and connection/session flow
-- `Server/JsonUserRepository.fs`: JSON-backed user storage
-- `Client/Program.fs`: chat client console loop
+- `Server/Program.fs`: chat server with functional state and async session flow
+- `Server/UserStore.fs`: shared domain types and functional storage dependency record
+- `Server/JsonUserStore.fs`: JSON-backed user storage implemented with pure transforms + IO boundary
+- `Client/Program.fs`: chat client using recursive/async console loops
 
 ## Build
 
@@ -83,7 +84,7 @@ Behavior details:
 
 - User credentials are stored in `users.json` (created automatically on first registration).
 - `users.json` is local file storage intended for development/demo usage.
-- The repository abstraction (`IUserRepository`) allows replacing JSON with a database later.
+- Storage is wired through a functional `UserStore` record, which keeps persistence swappable without relying on an OO repository interface.
 
 ## Troubleshooting
 

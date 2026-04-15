@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Net.Sockets
 open System.Text
-open System.Threading
 
 [<Literal>]
 let AuthOk = "AUTH_OK"
@@ -12,21 +11,30 @@ let AuthOk = "AUTH_OK"
 [<Literal>]
 let AuthFail = "AUTH_FAIL"
 
+type ConnectionSettings = {
+    Hostname: string
+    Port: int
+}
+
 let utf8NoBom = UTF8Encoding(false)
 
 let prompt (label: string) =
     printf "%s" label
     Console.ReadLine()
 
-let promptRequired (label: string) =
-    let rec loop () =
-        let value = prompt label
-        if String.IsNullOrWhiteSpace(value) then
-            printfn "Value cannot be empty."
-            loop ()
-        else
-            value.Trim()
-    loop ()
+let tryTrimmedValue (value: string) =
+    if String.IsNullOrWhiteSpace(value) then
+        None
+    else
+        Some(value.Trim())
+
+let rec promptRequired (label: string) =
+    match prompt label |> tryTrimmedValue with
+    | Some value ->
+        value
+    | None ->
+        printfn "Value cannot be empty."
+        promptRequired label
 
 let sendLine (writer: StreamWriter) (message: string) =
     writer.WriteLine(message)
@@ -40,60 +48,101 @@ let tryReadLine (reader: StreamReader) =
     | :? ObjectDisposedException ->
         None
 
+let buildCredentials username password = sprintf "%s:%s" username password
+
+let describeAuthenticationFailure response =
+    match response with
+    | Some AuthFail ->
+        Some "Invalid username or password. Please try again."
+    | Some _ ->
+        Some "Unexpected response from server. Please try again."
+    | None ->
+        None
+
 let rec authenticate (reader: StreamReader) (writer: StreamWriter) =
     let username = promptRequired "Enter your username: "
     let password = promptRequired "Enter your password: "
-    sendLine writer (sprintf "%s:%s" username password)
+    sendLine writer (buildCredentials username password)
 
     match tryReadLine reader with
     | Some AuthOk ->
         username
-    | Some AuthFail ->
-        printfn "Invalid username or password. Please try again."
-        authenticate reader writer
-    | Some _ ->
-        printfn "Unexpected response from server. Please try again."
-        authenticate reader writer
-    | None ->
-        failwith "Disconnected during authentication."
+    | response ->
+        match describeAuthenticationFailure response with
+        | Some message ->
+            printfn "%s" message
+            authenticate reader writer
+        | None ->
+            failwith "Disconnected during authentication."
 
-let startReceiveLoop (reader: StreamReader) =
-    let receiveThread =
-        Thread(
-            ThreadStart(fun () ->
-                let mutable running = true
-                while running do
-                    match tryReadLine reader with
-                    | Some message ->
-                        Console.WriteLine()
-                        Console.WriteLine(message)
-                        Console.Write("> ")
-                    | None ->
-                        running <- false))
+let renderIncomingMessage (message: string) =
+    Console.WriteLine()
+    Console.WriteLine(message)
+    Console.Write("> ")
 
-    receiveThread.IsBackground <- true
-    receiveThread.Start()
-    receiveThread
+let rec receiveLoop (reader: StreamReader) =
+    async {
+        match tryReadLine reader with
+        | Some message ->
+            renderIncomingMessage message
+            return! receiveLoop reader
+        | None ->
+            return ()
+    }
 
-let runInputLoop (writer: StreamWriter) =
-    let mutable running = true
+let isQuitCommand (message: string) =
+    String.Equals(message, "/quit", StringComparison.OrdinalIgnoreCase)
 
-    while running do
-        Console.Write("> ")
-        let message = Console.ReadLine()
+let rec runInputLoop (writer: StreamWriter) =
+    Console.Write("> ")
 
-        if isNull message then
-            running <- false
-        else
-            let trimmed = message.Trim()
-            if String.Equals(trimmed, "/quit", StringComparison.OrdinalIgnoreCase) then
-                running <- false
-            elif not (String.IsNullOrWhiteSpace(trimmed)) then
-                sendLine writer trimmed
+    match Console.ReadLine() with
+    | null ->
+        ()
+    | message ->
+        match tryTrimmedValue message with
+        | Some trimmed when isQuitCommand trimmed ->
+            ()
+        | Some trimmed ->
+            sendLine writer trimmed
+            runInputLoop writer
+        | None ->
+            runInputLoop writer
 
-let startClient (hostname: string) (port: int) =
+let tryParsePort (value: string) =
+    match Int32.TryParse(value) with
+    | true, port when port > 0 && port <= 65535 -> Some port
+    | _ -> None
+
+let tryGetArg index (argv: string array) =
+    if index < argv.Length then
+        Some argv.[index]
+    else
+        None
+
+let parseArgs (argv: string array) =
+    let hostname =
+        argv
+        |> tryGetArg 0
+        |> Option.defaultValue "localhost"
+
+    let port =
+        argv
+        |> tryGetArg 1
+        |> Option.map (fun value ->
+            value
+            |> tryParsePort
+            |> Option.defaultWith (fun () -> failwith "Port must be an integer between 1 and 65535."))
+        |> Option.defaultValue 8963
+
+    {
+        Hostname = hostname
+        Port = port
+    }
+
+let startClient (settings: ConnectionSettings) =
     use client = new TcpClient()
-    client.Connect(hostname, port)
+    client.Connect(settings.Hostname, settings.Port)
 
     use stream = client.GetStream()
     use reader = new StreamReader(stream, utf8NoBom, false, 1024, true)
@@ -106,30 +155,17 @@ let startClient (hostname: string) (port: int) =
     let username = authenticate reader writer
     printfn "Connected as %s. Type /quit to disconnect." username
 
-    let receiveThread = startReceiveLoop reader
+    let receiveTask = receiveLoop reader |> Async.StartAsTask
     runInputLoop writer
 
     client.Close()
-    receiveThread.Join(500) |> ignore
-
-let parseArgs (argv: string array) =
-    let hostname = if argv.Length > 0 then argv.[0] else "localhost"
-
-    let port =
-        if argv.Length > 1 then
-            match Int32.TryParse(argv.[1]) with
-            | true, value when value > 0 && value <= 65535 -> value
-            | _ -> failwith "Port must be an integer between 1 and 65535."
-        else
-            8963
-
-    hostname, port
+    receiveTask.Wait(500) |> ignore
 
 [<EntryPoint>]
 let main argv =
     try
-        let hostname, port = parseArgs argv
-        startClient hostname port
+        let settings = parseArgs argv
+        startClient settings
         0
     with
     | :? SocketException as ex ->
