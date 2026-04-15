@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PORT="${PORT:-8963}"
+PORT="${PORT:-$((20000 + RANDOM % 20000))}"
 SERVER_WORKDIR="$(mktemp -d)"
 SERVER_LOG="${SERVER_WORKDIR}/server.log"
 SERVER_PID=""
@@ -59,6 +59,10 @@ wait_for_server() {
   local probe_fd=""
 
   for _ in $(seq 1 40); do
+    if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+      fail "server process exited before listening on port ${PORT}"
+    fi
+
     if exec {probe_fd}<>"/dev/tcp/127.0.0.1/${PORT}" 2>/dev/null; then
       close_fd "${probe_fd}"
       return 0
