@@ -4,8 +4,8 @@
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="IUserRepository.fs" />
-    <Compile Include="JsonUserRepository.fs" />
+    <Compile Include="UserStore.fs" />
+    <Compile Include="JsonUserStore.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 </Project>
