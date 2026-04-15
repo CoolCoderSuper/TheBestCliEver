@@ -1,5 +1,6 @@
 ﻿namespace Chat.Desktop
 
+open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.ApplicationLifetimes

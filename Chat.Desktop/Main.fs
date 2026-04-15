@@ -17,6 +17,7 @@ type Model = {
     Password: string
     DraftMessage: string
     Messages: string list
+    Activity: string list
     StatusMessage: string option
     Session: ChatSession option
     IsConnecting: bool
@@ -31,6 +32,7 @@ module Main =
         Password = ""
         DraftMessage = ""
         Messages = []
+        Activity = [ "Ready." ]
         StatusMessage = Some "Enter a channel and credentials, then connect."
         Session = None
         IsConnecting = false
@@ -52,6 +54,17 @@ module Main =
         |> List.rev
         |> String.concat Environment.NewLine
 
+    let appendActivity entry model =
+        let nextActivity =
+            entry
+            :: model.Activity
+            |> List.truncate 8
+
+        {
+            model with
+                Activity = nextActivity
+        }
+
     let field label control =
         StackPanel.create [
             StackPanel.spacing 4.0
@@ -66,7 +79,6 @@ module Main =
     let view =
         Component(fun ctx ->
             let state = ctx.useState initialModel
-
             let update updater =
                 state.Set(updater state.Current)
 
@@ -82,6 +94,7 @@ module Main =
                             Session = None
                             IsConnecting = false
                             DraftMessage = ""
+                            Activity = "Disconnected by user." :: current.Activity |> List.truncate 8
                             StatusMessage = Some "Disconnected."
                     })
 
@@ -109,6 +122,7 @@ module Main =
                                 {
                                     current with
                                         Messages = message :: current.Messages
+                                        Activity = sprintf "Received: %s" message :: current.Activity |> List.truncate 8
                                 })
                         | SessionEvent.Disconnected reason ->
                             let status =
@@ -122,6 +136,7 @@ module Main =
                                         Session = None
                                         IsConnecting = false
                                         DraftMessage = ""
+                                        Activity = sprintf "Disconnected: %s" status :: current.Activity |> List.truncate 8
                                         StatusMessage = Some status
                                 })
 
@@ -132,6 +147,10 @@ module Main =
                                 Session = None
                                 DraftMessage = ""
                                 Messages = []
+                                Activity =
+                                    sprintf "Connecting to %s:%d (%s)" request.Hostname request.Port request.Channel
+                                    :: current.Activity
+                                    |> List.truncate 8
                                 StatusMessage = Some "Connecting..."
                         })
 
@@ -143,15 +162,19 @@ module Main =
                                     current with
                                         Session = Some session
                                         IsConnecting = false
+                                        Activity = sprintf "Connected as %s" session.Username :: current.Activity |> List.truncate 8
                                         StatusMessage = Some(sprintf "Connected as %s." session.Username)
                                 })
                         | Error error ->
+                            let message = ConnectError.toMessage error
+
                             postUpdate (fun current ->
                                 {
                                     current with
                                         Session = None
                                         IsConnecting = false
-                                        StatusMessage = Some(ConnectError.toMessage error)
+                                        Activity = sprintf "Connection failed: %s" message :: current.Activity |> List.truncate 8
+                                        StatusMessage = Some message
                                 })
                     }
                     |> Async.Start
@@ -167,6 +190,7 @@ module Main =
                         {
                             current with
                                 DraftMessage = ""
+                                Activity = sprintf "Sent: %s" message :: current.Activity |> List.truncate 8
                         })
                 | _ ->
                     ()
@@ -177,6 +201,7 @@ module Main =
             let canDisconnect = current.Session.IsSome || current.IsConnecting
             let canSend = current.Session.IsSome && tryTrimmedValue current.DraftMessage |> Option.isSome
             let historyText = buildHistory current.Messages
+            let activityText = buildHistory current.Activity
 
             DockPanel.create [
                 DockPanel.lastChildFill true
@@ -287,6 +312,13 @@ module Main =
                                     ]
                                     TextBlock.create [
                                         TextBlock.text (current.StatusMessage |> Option.defaultValue "")
+                                    ]
+                                    TextBox.create [
+                                        TextBox.text activityText
+                                        TextBox.isReadOnly true
+                                        TextBox.acceptsReturn true
+                                        TextBox.textWrapping TextWrapping.Wrap
+                                        TextBox.caretIndex activityText.Length
                                     ]
                                 ]
                             ]
