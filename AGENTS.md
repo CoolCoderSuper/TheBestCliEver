@@ -20,7 +20,7 @@ dotnet build Client/Client.fsproj
 - **Server:** `dotnet run --project Server` (default port 8963, or pass a custom port as an argument)
 - **Client:** `dotnet run --project Client` (interactive console app — requires stdin for channel name, username, password, and messages)
 
-The Client is fully interactive and cannot be driven non-interactively with `dotnet run`. For automated testing, connect directly via raw TCP sockets (e.g. Python `socket` module) and send the protocol lines: channel name, then `username:password`, then chat messages.
+The Client is interactive (reads from stdin). To test it in a headless/agent environment, run it inside a tmux session and use `tmux send-keys` to feed input line by line. Wait ~4 seconds after `dotnet run --project Client` for the F# compilation/startup before sending the first input.
 
 ### Protocol (for automated testing)
 
