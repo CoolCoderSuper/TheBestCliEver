@@ -40,6 +40,25 @@ dotnet build Client/Client.fsproj
 dotnet build Chat.Desktop/Chat.Desktop.fsproj
 ```
 
+## Test
+
+Run the repeatable end-to-end verification script from the repository root:
+
+```sh
+bash scripts/test-e2e.sh
+```
+
+This script builds the solution, starts a temporary server instance, and verifies:
+
+- new user registration
+- persisted credential reuse
+- invalid password rejection
+- same-channel message broadcast
+- cross-channel message isolation
+- join/leave presence events
+
+The repo's startup checks also build `TcpChat.sln` automatically so fresh cloud sessions catch compile issues early.
+
 ## Run
 
 ### 1) Start the server
